@@ -7,6 +7,7 @@ from database.db import check_url_exists
 from config import news_sources_list, max_news_per_source
 from urllib.parse import urljoin, urlparse
 import re
+from pathlib import Path
 
 async def parse_rss_feed(feed_url: str) -> List[Dict]:
     """Парсит RSS фид"""
@@ -113,66 +114,54 @@ async def parse_ixbt_car(source_url: str) -> List[Dict]:
                 items = []
                 seen_urls = set()
                 
-                # Паттерн для даты: "12 июн 09:00", "06 апр 10:00" и т.д.
-                date_pattern = re.compile(r'\d{1,2}\s+(янв|фев|мар|апр|май|июн|июл|авг|сен|окт|ноя|дек)\s+\d{2}:\d{2}', re.IGNORECASE)
+                # Ищем ВСЕ ссылки на странице
+                all_links = soup.find_all('a', href=True)
+                print(f"[IXBT-CAR] Всего ссылок: {len(all_links)}")
                 
-                # Ищем все текстовые узлы с датами
-                all_text = soup.find_all(string=True)
-                
-                for text_node in all_text:
-                    text = str(text_node).strip()
+                for link in all_links:
+                    href = link.get('href', '')
+                    title = link.get_text(strip=True)
                     
-                    # Проверяем, содержит ли этот текст дату
-                    if date_pattern.search(text):
-                        # Нашли дату! Теперь ищем родительский контейнер новости
-                        parent = text_node.parent
-                        
-                        # Поднимаемся на несколько уровней вверх, чтобы найти контейнер новости
-                        for _ in range(5):
-                            if parent is None:
-                                break
-                            
-                            # Ищем ссылку в этом контейнере
-                            link = parent.find('a', href=True)
-                            
-                            if link:
-                                href = link.get('href', '')
-                                title = link.get_text(strip=True)
-                                
-                                # Проверяем, что это реальная новость
-                                if len(title) >= 20 and title not in ['Читать далее', 'Подробнее', 'Все новости']:
-                                    # Преобразуем относительный URL в абсолютный
-                                    if not href.startswith('http'):
-                                        href = urljoin(source_url, href)
-                                    
-                                    # Проверяем, что это ссылка на iXBT
-                                    if 'ixbt.com' in href:
-                                        # Проверяем, что это новость (не служебная ссылка)
-                                        # Новости имеют /news/ или /car/ с числом в URL
-                                        if '/news/' in href or re.search(r'/car/\d+/', href):
-                                            # Убираем дубликаты
-                                            if href not in seen_urls:
-                                                seen_urls.add(href)
-                                                items.append({
-                                                    'title': title,
-                                                    'url': href,
-                                                    'source': source_url
-                                                })
-                                                break
-                            
-                            parent = parent.parent
+                    # 1. Минимальная длина заголовка - 25 символов
+                    if len(title) < 25:
+                        continue
+                    
+                    # 2. Убираем служебные слова
+                    if title in ['Читать далее', 'Подробнее', 'Все новости', 'Комментарии']:
+                        continue
+                    
+                    # 3. Преобразуем относительный URL в абсолютный
+                    if not href.startswith('http'):
+                        href = urljoin(source_url, href)
+                    
+                    # 4. Проверяем, что это iXBT
+                    if 'ixbt.com' not in href:
+                        continue
+                    
+                    # 5. ПРОСТАЯ ФИЛЬТРАЦИЯ: новости имеют /news/ в URL
+                    if '/car/' not in href:
+                        continue
+                    
+                    # 6. Убираем дубликаты
+                    if href in seen_urls:
+                        continue
+                    
+                    seen_urls.add(href)
+                    items.append({
+                        'title': title,
+                        'url': href,
+                        'source': source_url
+                    })
+                    
+                    print(f"[IXBT-CAR] ✅ {title[:50]}... | {href}")
                 
-                print(f"[IXBT-CAR] Найдено реальных новостей: {len(items)}")
-                
-                # Выводим первые 5 найденных для отладки
-                for i, item in enumerate(items[:5], 1):
-                    print(f"[IXBT-CAR]   {i}. {item['title'][:60]}...")
-                    print(f"[IXBT-CAR]      {item['url']}")
-                
+                print(f"[IXBT-CAR] ИТОГО найдено новостей: {len(items)}")
                 return items[:max_news_per_source]
                     
     except Exception as e:
         print(f"[IXBT-CAR] ❌ Ошибка при парсинге {source_url}: {e}")
+        import traceback
+        traceback.print_exc()
         return []
     
     return []
