@@ -1,0 +1,7 @@
+from .news import router as news_router
+from .processing import router as processing_router
+from .images import router as images_router
+from .text import router as text_router
+from .ixbt import router as ixbt_router
+
+__all__ = ['news_router', 'processing_router', 'images_router', 'text_router', 'ixbt_router']

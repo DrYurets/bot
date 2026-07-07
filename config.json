@@ -1,0 +1,7 @@
+{
+  "image_processing": {
+    "width": 1000,
+    "height": 500,
+    "quality": 85
+  }
+}
