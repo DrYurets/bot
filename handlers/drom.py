@@ -11,11 +11,11 @@ async def cmd_drom(message: types.Message):
     await message.answer("🚗 Парсю новости Honda на Drom.ru...")
     
     try:
-        # ВСЕГДА парсим сайт
+        # Парсим сайт
         raw_news = await parse_drom_honda("https://news.drom.ru/honda/")
         
         if not raw_news:
-            # Если парсер не нашёл ничего, показываем последние из БД
+            # Если парсер не нашёл ничего на сайте
             latest = await get_latest_publications(limit=5, source="https://news.drom.ru/honda/")
             
             if not latest:
@@ -37,18 +37,28 @@ async def cmd_drom(message: types.Message):
             )
             return
         
-        result_text = "🚙 <b>Новости Honda на Drom.ru:</b>\n\n"
-        new_count = 0
+        # Сохраняем в БД и считаем только НОВЫЕ записи
+        new_publications = []
         
         for item in raw_news:
             pub_id = await save_publication(item['title'], item['url'], item['source'])
-            if pub_id:  # Только если это новая запись
-                result_text += f"[<b>ID: {pub_id}</b>] {item['title']}\n🔗 {item['url']}\n\n"
-                new_count += 1
+            if pub_id:  # Только если это НОВАЯ запись
+                new_publications.append({
+                    'id': pub_id,
+                    'title': item['title'],
+                    'url': item['url']
+                })
         
-        if new_count == 0:
-            await message.answer("✅ Все новости уже в базе данных. Новых нет.")
+        if not new_publications:
+            # Все найденные публикации уже есть в БД
+            await message.answer("✅ Все найденные новости уже в базе данных. Новых публикаций нет.")
             return
+        
+        # Формируем ответ только из НОВЫХ публикаций
+        result_text = f"🚙 <b>Новые новости Honda на Drom.ru ({len(new_publications)} шт.):</b>\n\n"
+        
+        for pub in new_publications:
+            result_text += f"[<b>ID: {pub['id']}</b>] {pub['title']}\n🔗 {pub['url']}\n\n"
         
         await message.answer(
             result_text, 
