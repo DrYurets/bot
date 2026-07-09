@@ -84,7 +84,7 @@ newsbot/
 
 | Команда | Описание |
 |---------|----------|
-| `/news` | Парсит все источники из `DROM_SOURCES`. Сохраняет новые публикации в БД, возвращает ID. При отсутствии новых — последние 5 из БД. |
+| `/news` | Сводная команда: **последовательно** запускает `iXBT → Drom → Motor`, сохраняет новые публикации и возвращает ID. При отсутствии новых — последние 5 из БД. |
 | `/ixbt` | Парсит API-источники из `IXBT_SOURCES`. Сохраняет новые записи, скачивает обложки. Требует `IXBT_SOURCES` в `.env`. Fallback — последние 5 из БД. |
 | `/drom` | Парсит `https://news.drom.ru/honda/`. Аналогично `/ixbt`. |
 | `/motor` | Парсит API-источники из `MOTOR_HONDA_SOURCE` и `MOTOR_ACURA_SOURCE`. Сохраняет новые записи, скачивает обложки из `included.image.versions.*.rel_url`. Fallback — последние 5 из БД. |
@@ -153,9 +153,23 @@ images/09.07.2026/IX_AC_2/acura-predstavila-obnovlennuyu-model.webp
 
 ## Парсинг новостей (`services/news_parser.py`)
 
-### `/news` — `parse_new_sources()`
+### `/news` — сводный поток
 
-Читает `DROM_SOURCES` (через запятую) и выбирает парсер по URL:
+Команда `/news` выполняет источники последовательно:
+
+1. `parse_ixbt_sources()` (источники из `IXBT_SOURCES`)
+2. `parse_drom_honda()` для каждого URL из `DROM_SOURCES`
+3. `parse_motor_sources()` (источники `MOTOR_HONDA_SOURCE` + `MOTOR_ACURA_SOURCE`)
+
+После этого:
+
+- дедупликация по URL в рамках запуска
+- сохранение в БД через `save_publication(...)`
+- сохранение обложки через `cover_storage` (если `cover_url` есть)
+
+`parse_new_sources()` — legacy-агрегатор на базе `DROM_SOURCES`, сохранён для обратной совместимости/расширений.
+
+`parse_new_sources()` читает `DROM_SOURCES` (через запятую) и выбирает парсер по URL:
 
 | Условие | Парсер |
 |---------|--------|
