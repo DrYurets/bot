@@ -1,4 +1,3 @@
-import re
 from pathlib import Path
 import tempfile
 
@@ -6,6 +5,7 @@ from aiogram import Router, types, F
 from aiogram.filters import Command
 from services.image_processor import process_image
 from services.cover_storage import get_publication_cover_path, PROJECT_ROOT
+from services.publication_id import parse_publication_ids
 from database.db import get_publications_by_ids
 from aiogram.types import FSInputFile
 
@@ -18,17 +18,12 @@ async def cmd_images_start(message: types.Message):
     if len(args) < 2:
         await message.answer(
             "📸 Отправьте изображение или укажите ID публикаций.\n"
-            "Пример: <code>/images 1, 2, 3</code>",
+            "Пример: <code>/images IX_HON_1, IX_AC_2</code>",
             parse_mode="HTML",
         )
         return
 
-    raw_ids = re.sub(r"[^\d,]", "", args[1])
-    try:
-        ids = [int(x) for x in raw_ids.split(",") if x]
-    except ValueError:
-        await message.answer("⚠️ Ошибка формата ID.")
-        return
+    ids = parse_publication_ids(args[1])
 
     if not ids:
         await message.answer("⚠️ Не найдено ни одного валидного ID.")
@@ -38,7 +33,7 @@ async def cmd_images_start(message: types.Message):
 
     publications = await get_publications_by_ids(ids)
     found_ids = {pub["id"] for pub in publications}
-    missing_ids = set(ids) - found_ids
+    missing_ids = [pub_id for pub_id in ids if pub_id not in found_ids]
 
     success_count = 0
     errors = []
@@ -75,7 +70,7 @@ async def cmd_images_start(message: types.Message):
 
     report = f"✅ Обработано изображений: {success_count}"
     if missing_ids:
-        report += f"\n⚠️ ID не найдены в БД: {', '.join(map(str, sorted(missing_ids)))}"
+        report += f"\n⚠️ ID не найдены в БД: {', '.join(missing_ids)}"
     if errors:
         report += "\n\n<b>Ошибки:</b>\n" + "\n".join(f"• {error}" for error in errors[:5])
         if len(errors) > 5:

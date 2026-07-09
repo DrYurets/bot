@@ -29,8 +29,8 @@ def _cover_extension(cover_url: str, content_type: str | None = None) -> str:
 
     return ".jpg"
 
-async def save_publication_cover(pub_id: int, cover_url: str) -> Optional[str]:
-    """Скачивает обложку и сохраняет в images/<pub_id>/cover.<ext>."""
+async def save_publication_cover(pub_id: str, cover_url: str) -> Optional[str]:
+    """Скачивает обложку и сохраняет в images/<pub_id>/cover.<ext> (напр. images/IX_HON_1/)."""
     if not cover_url:
         return None
 
@@ -58,7 +58,7 @@ async def save_publication_cover(pub_id: int, cover_url: str) -> Optional[str]:
         print(f"[COVER] ❌ Ошибка сохранения ID {pub_id}: {e}")
         return None
 
-def get_publication_cover_path(pub_id: int) -> Optional[Path]:
+def get_publication_cover_path(pub_id: str) -> Optional[Path]:
     """Возвращает путь к сохранённой обложке публикации, если она есть."""
     pub_dir = IMAGES_DIR / str(pub_id)
     if not pub_dir.exists():

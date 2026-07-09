@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 import asyncio
 from database.db import check_url_exists
 from config import news_sources_list, ixbt_sources_list, max_news_per_source
+from services.datetime_utils import format_publication_datetime
 from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
 import re
 from pathlib import Path
@@ -46,8 +47,8 @@ def _ixbt_source_key(api_url: str) -> str:
     return _ixbt_api_page_url(api_url, 1)
 
 def _ixbt_publication_datetime(pub: dict) -> str | None:
-    """Возвращает отображаемую дату публикации из ответа API."""
-    return pub.get("formated_pubdatetime") or pub.get("pubdatetime")
+    """Возвращает ISO-дату публикации (pubdatetime) из ответа API."""
+    return pub.get("pubdatetime")
 
 def _parse_ixbt_publication(pub: dict, source_key: str, search_brand: str | None) -> Dict | None:
     url = pub.get("url") or (pub.get("urls") or {}).get("ru")
@@ -308,7 +309,9 @@ async def parse_ixbt_api(api_url: str) -> List[Dict]:
                         continue
 
                     items.append(item)
-                    date_suffix = f" | {item['published_at']}" if item.get("published_at") else ""
+                    date_suffix = ""
+                    if item.get("published_at"):
+                        date_suffix = f" | {format_publication_datetime(item['published_at'])}"
                     print(f"[IXBT-API] ✅ {item['title'][:50]}...{date_suffix}")
 
                 if not data.get("data"):

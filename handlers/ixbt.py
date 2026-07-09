@@ -2,6 +2,7 @@ from aiogram import Router, types
 from aiogram.filters import Command
 from services.news_parser import parse_ixbt_sources
 from services.cover_storage import save_publication_cover
+from services.datetime_utils import format_publication_datetime
 from database.db import (
     save_publication,
     update_publication_cover_path,
@@ -13,8 +14,9 @@ router = Router()
 
 def _format_publication_line(pub: dict) -> str:
     line = f"[<b>ID: {pub['id']}</b>] {pub['title']}\n"
-    if pub.get("published_at"):
-        line += f"🕐 {pub['published_at']}\n"
+    date = format_publication_datetime(pub.get("published_at"))
+    if date != "—":
+        line += f"🕐 {date}\n"
     line += f"🔗 {pub['url']}\n\n"
     return line
 
