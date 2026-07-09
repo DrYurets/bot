@@ -13,7 +13,9 @@ from handlers import (
     text_router, 
     ixbt_router,
     drom_router,
-    list_router
+    motor_router,
+    list_router,
+    rewrite_router,
 )
 
 # Настройка логирования
@@ -29,10 +31,12 @@ async def set_bot_commands(bot: Bot):
         BotCommand(command="news", description="📰 Получить новые публикации"),
         BotCommand(command="ixbt", description="🚗 Новости Honda/Acura iXBT"),
         BotCommand(command="drom", description="🚙 Новости Honda на Drom.ru"),
-        BotCommand(command="list", description="📋 Список всех публикаций (drom/ixbt)"),
+        BotCommand(command="motor", description="🏎 Новости Honda/Acura Motor.ru"),
+        BotCommand(command="list", description="📋 Список всех публикаций (drom/ixbt/motor)"),
         BotCommand(command="processing", description="⚙️ Извлечь текст публикаций (ID)"),
         BotCommand(command="images", description="🖼 Обработать обложки (ID) или фото"),
-        BotCommand(command="text", description="📝 Работа с текстом (скоро)")
+        BotCommand(command="text", description="📝 Экспорт исходного текста (ID)"),
+        BotCommand(command="rewrite", description="✍️ Рерайт текста через TEXT.ru (ID)"),
     ]
     
     await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
@@ -59,10 +63,12 @@ async def main():
     dp.include_router(news_router)
     dp.include_router(ixbt_router)
     dp.include_router(drom_router)
+    dp.include_router(motor_router)
     dp.include_router(list_router)  # НОВЫЙ РОУТЕР
     dp.include_router(processing_router)
     dp.include_router(images_router)
     dp.include_router(text_router)
+    dp.include_router(rewrite_router)
     
     logger.info("Бот запущен")
     

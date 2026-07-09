@@ -65,7 +65,7 @@ async def cmd_drom(message: types.Message):
 
             cover_path = None
             if item.get("cover_url"):
-                cover_path = await save_publication_cover(pub_id, item["cover_url"])
+                cover_path = await save_publication_cover(pub_id, item["title"], item["cover_url"])
                 if cover_path:
                     await update_publication_cover_path(pub_id, cover_path)
 
@@ -81,7 +81,7 @@ async def cmd_drom(message: types.Message):
             await message.answer("✅ Все найденные новости уже в базе данных. Новых публикаций нет.")
             return
 
-        result_text = f"🚙 <b>Новые новости Honda на Drom.ru ({len(new_publications)} шт.):</b>\n\n"
+        result_text = f"🚙 <b>Новые Honda на Drom.ru ({len(new_publications)} шт.):</b>\n\n"
 
         for pub in new_publications:
             result_text += _format_publication_line(pub)

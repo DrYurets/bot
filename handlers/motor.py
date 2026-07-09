@@ -1,14 +1,15 @@
 from aiogram import Router, types
 from aiogram.filters import Command
-from services.news_parser import parse_ixbt_sources
-from services.cover_storage import save_publication_cover
-from services.datetime_utils import format_publication_datetime
+
+from config import motor_sources_list
 from database.db import (
+    get_latest_publications_by_sources,
     save_publication,
     update_publication_cover_path,
-    get_latest_publications_by_sources,
 )
-from config import ixbt_sources_list
+from services.cover_storage import save_publication_cover
+from services.datetime_utils import format_publication_datetime
+from services.news_parser import parse_motor_sources
 
 router = Router()
 
@@ -20,24 +21,24 @@ def _format_publication_line(pub: dict) -> str:
     line += f"🔗 {pub['url']}\n\n"
     return line
 
-@router.message(Command("ixbt"))
-async def cmd_ixbt(message: types.Message):
-    """Обработчик команды /ixbt - парсинг новостей Honda/Acura с iXBT"""
-    if not ixbt_sources_list:
+@router.message(Command("motor"))
+async def cmd_motor(message: types.Message):
+    """Обработчик команды /motor - парсинг новостей Honda/Acura с Motor.ru API."""
+    if not motor_sources_list:
         await message.answer(
-            "⚠️ Не настроены источники iXBT.\n"
-            "Добавьте <code>IXBT_SOURCES</code> в файл <code>.env</code>.",
+            "⚠️ Не настроены источники Motor.ru.\n"
+            "Добавьте <code>MOTOR_HONDA_SOURCE</code> и <code>MOTOR_ACURA_SOURCE</code> в файл <code>.env</code>.",
             parse_mode="HTML",
         )
         return
 
-    await message.answer("⏳ Парсю новости Honda/Acura на iXBT...")
+    await message.answer("⏳ Парсю новости Honda/Acura на Motor.ru...")
 
     try:
-        raw_news = await parse_ixbt_sources()
+        raw_news = await parse_motor_sources()
 
         if not raw_news:
-            latest = await get_latest_publications_by_sources(ixbt_sources_list, limit=5)
+            latest = await get_latest_publications_by_sources(motor_sources_list, limit=5)
 
             if not latest:
                 await message.answer(
@@ -46,15 +47,15 @@ async def cmd_ixbt(message: types.Message):
                 )
                 return
 
-            result_text = "📋 <b>Последние сохранённые публикации (сайт недоступен):</b>\n\n"
+            result_text = "📋 <b>Последние сохранённые публикации Motor.ru (сайт недоступен):</b>\n\n"
             for pub in latest:
-                status_icon = "✅" if pub['status'] == 'text_fetched' else "🆕"
+                status_icon = "✅" if pub["status"] == "text_fetched" else "🆕"
                 result_text += f"{status_icon} {_format_publication_line(pub)}"
 
             await message.answer(
                 result_text,
                 parse_mode="HTML",
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
             )
             return
 
@@ -76,28 +77,28 @@ async def cmd_ixbt(message: types.Message):
                 if cover_path:
                     await update_publication_cover_path(pub_id, cover_path)
 
-            new_publications.append({
-                "id": pub_id,
-                "title": item["title"],
-                "url": item["url"],
-                "published_at": item.get("published_at"),
-                "cover_path": cover_path,
-            })
+            new_publications.append(
+                {
+                    "id": pub_id,
+                    "title": item["title"],
+                    "url": item["url"],
+                    "published_at": item.get("published_at"),
+                    "cover_path": cover_path,
+                }
+            )
 
         if not new_publications:
             await message.answer("✅ Все найденные новости уже в базе данных. Новых публикаций нет.")
             return
 
-        result_text = f"🚗 <b>Новые Honda/Acura на iXBT ({len(new_publications)} шт.):</b>\n\n"
-
+        result_text = f"🏎 <b>Новые Honda/Acura на Motor.ru ({len(new_publications)} шт.):</b>\n\n"
         for pub in new_publications:
             result_text += _format_publication_line(pub)
 
         await message.answer(
             result_text,
             parse_mode="HTML",
-            disable_web_page_preview=True
+            disable_web_page_preview=True,
         )
-
     except Exception as e:
-        await message.answer(f"❌ Ошибка при парсинге iXBT: {str(e)}")
+        await message.answer(f"❌ Ошибка при парсинге Motor.ru: {str(e)}")

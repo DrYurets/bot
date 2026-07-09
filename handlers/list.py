@@ -2,7 +2,7 @@ import html
 from aiogram import Router, types
 from aiogram.filters import Command
 from database.db import get_publications_by_source, get_publications_by_sources
-from config import ixbt_sources_list
+from config import ixbt_sources_list, motor_sources_list
 from services.datetime_utils import format_publication_datetime, publication_sort_key
 
 router = Router()
@@ -10,11 +10,13 @@ router = Router()
 SOURCE_MAPPING = {
     "drom": ["https://news.drom.ru/honda/"],
     "ixbt": ixbt_sources_list,
+    "motor": motor_sources_list,
 }
 
 SOURCE_NAMES = {
     "drom": "🚙 Drom.ru (Honda)",
     "ixbt": "🚗 iXBT (Honda/Acura)",
+    "motor": "🏎 Motor.ru (Honda/Acura)",
 }
 
 MAX_TITLE_LENGTH = 70
@@ -84,7 +86,8 @@ async def cmd_list(message: types.Message):
         await message.answer(
             "⚠️ Укажите источник. Примеры:\n"
             "• <code>/list drom</code> - все новости Honda с Drom.ru\n"
-            "• <code>/list ixbt</code> - все новости Honda/Acura с iXBT",
+            "• <code>/list ixbt</code> - все новости Honda/Acura с iXBT\n"
+            "• <code>/list motor</code> - все новости Honda/Acura с Motor.ru",
             parse_mode="HTML",
         )
         return
@@ -96,7 +99,8 @@ async def cmd_list(message: types.Message):
             f"⚠️ Неизвестный источник: <b>{source_key}</b>\n\n"
             "Доступные источники:\n"
             "• <code>drom</code> - Drom.ru (Honda)\n"
-            "• <code>ixbt</code> - iXBT (Honda/Acura)",
+            "• <code>ixbt</code> - iXBT (Honda/Acura)\n"
+            "• <code>motor</code> - Motor.ru (Honda/Acura)",
             parse_mode="HTML",
         )
         return
@@ -107,6 +111,14 @@ async def cmd_list(message: types.Message):
         await message.answer(
             "⚠️ Не настроены источники iXBT.\n"
             "Добавьте <code>IXBT_SOURCES</code> в файл <code>.env</code>.",
+            parse_mode="HTML",
+        )
+        return
+
+    if source_key == "motor" and not source_urls:
+        await message.answer(
+            "⚠️ Не настроены источники Motor.ru.\n"
+            "Добавьте <code>MOTOR_HONDA_SOURCE</code> и <code>MOTOR_ACURA_SOURCE</code> в файл <code>.env</code>.",
             parse_mode="HTML",
         )
         return

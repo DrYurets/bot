@@ -19,6 +19,15 @@ def get_source_id_prefix(source: str) -> str:
     if "drom.ru" in host or "drom.ru" in source:
         return "DR_HON"
 
+    if "motor.ru" in host:
+        query = parse_qs(parsed.query)
+        search = (query.get("query", [""])[0] or "").strip().upper()
+        if search == "HONDA":
+            return "MT_HON"
+        if search == "ACURA":
+            return "MT_AC"
+        return "MT_GEN"
+
     return "GEN"
 
 def parse_publication_ids(text: str) -> list[str]:
