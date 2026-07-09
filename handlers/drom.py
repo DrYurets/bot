@@ -65,7 +65,7 @@ async def cmd_drom(message: types.Message):
 
             cover_path = None
             if item.get("cover_url"):
-                cover_path = await save_publication_cover(pub_id, item["cover_url"])
+                cover_path = await save_publication_cover(pub_id, item["title"], item["cover_url"])
                 if cover_path:
                     await update_publication_cover_path(pub_id, cover_path)
 

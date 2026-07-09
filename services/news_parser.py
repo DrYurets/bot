@@ -5,7 +5,7 @@ from typing import List, Dict
 from bs4 import BeautifulSoup
 import asyncio
 from database.db import check_url_exists
-from config import news_sources_list, ixbt_sources_list, max_news_per_source
+from config import drom_sources_list, ixbt_sources_list, motor_sources_list, max_news_per_source
 from services.datetime_utils import format_publication_datetime, drom_date_to_iso
 from urllib.parse import urljoin, urlparse, parse_qs, urlencode, urlunparse
 import re
@@ -49,6 +49,61 @@ def _ixbt_source_key(api_url: str) -> str:
 def _ixbt_publication_datetime(pub: dict) -> str | None:
     """Возвращает ISO-дату публикации (pubdatetime) из ответа API."""
     return pub.get("pubdatetime")
+
+def _motor_source_key(api_url: str) -> str:
+    """Нормализует URL источника Motor.ru (фиксирует offset=0)."""
+    parsed = urlparse(api_url)
+    params = parse_qs(parsed.query)
+    params["offset"] = ["0"]
+    return urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
+
+def _motor_publication_mentions_brand(topic: dict, brand: str) -> bool:
+    attrs = topic.get("attributes", {})
+    text = " ".join(
+        [
+            attrs.get("headline", ""),
+            attrs.get("announce", ""),
+            attrs.get("slug", ""),
+        ]
+    )
+    pattern = IXBT_BRAND_PATTERNS.get(
+        brand.upper(),
+        re.compile(rf"\b{re.escape(brand)}\b", re.IGNORECASE),
+    )
+    return bool(pattern.search(text))
+
+def _motor_cover_url(topic: dict, included_images: dict) -> str | None:
+    rel_image = (topic.get("relationships", {}).get("image", {}) or {}).get("data")
+    if not rel_image:
+        return None
+    image_obj = included_images.get(rel_image.get("id"))
+    if not image_obj:
+        return None
+    versions = (image_obj.get("attributes", {}) or {}).get("versions", {})
+    for preferred in ("list_large", "list_3/2", "list_16/9", "main", "thumbnail"):
+        rel_url = ((versions.get(preferred) or {}).get("rel_url") or "").strip()
+        if rel_url:
+            return urljoin("https://motor.ru", rel_url)
+    return None
+
+def _parse_motor_topic(topic: dict, source_key: str, search_brand: str | None, included_images: dict) -> Dict | None:
+    attrs = topic.get("attributes", {})
+    title = (attrs.get("headline") or "").strip()
+    rel_link = (attrs.get("link") or "").strip()
+    if not title or not rel_link:
+        return None
+
+    if search_brand and not _motor_publication_mentions_brand(topic, search_brand):
+        print(f"[MOTOR-API] ⚠️ Пропущено (нет упоминания {search_brand}): {title[:50]}...")
+        return None
+
+    return {
+        "title": title,
+        "url": urljoin("https://motor.ru", rel_link),
+        "source": source_key,
+        "cover_url": _motor_cover_url(topic, included_images),
+        "published_at": attrs.get("published_at"),
+    }
 
 def _parse_ixbt_publication(pub: dict, source_key: str, search_brand: str | None) -> Dict | None:
     url = pub.get("url") or (pub.get("urls") or {}).get("ru")
@@ -258,6 +313,100 @@ async def parse_ixbt_sources() -> List[Dict]:
 
     print(f"[IXBT] Всего уникальных публикаций: {len(items)}")
     print(f"[IXBT] === Конец парсинга ===\n")
+    return items
+
+async def parse_motor_api(api_url: str) -> List[Dict]:
+    """Парсер API Motor.ru /api/bebop/v2/search."""
+    print(f"[MOTOR-API] Пытаюсь загрузить: {api_url}")
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Referer": "https://motor.ru/",
+        }
+        search_brand = (parse_qs(urlparse(api_url).query).get("query", [None])[0] or "").strip().upper() or None
+        source_key = _motor_source_key(api_url)
+        items = []
+        offset = 0
+        page_size = min(max_news_per_source, 50)
+
+        async with aiohttp.ClientSession() as session:
+            while len(items) < max_news_per_source:
+                parsed = urlparse(api_url)
+                params = parse_qs(parsed.query)
+                params["offset"] = [str(offset)]
+                params["limit"] = [str(page_size)]
+                page_url = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
+                print(f"[MOTOR-API] Смещение {offset}: {page_url}")
+
+                async with session.get(page_url, headers=headers, timeout=15) as response:
+                    print(f"[MOTOR-API] Статус ответа: {response.status}")
+                    if response.status != 200:
+                        break
+                    payload = await response.json()
+
+                data = payload.get("data", [])
+                included = payload.get("included", [])
+                if not data:
+                    break
+
+                included_images = {
+                    obj.get("id"): obj
+                    for obj in included
+                    if obj.get("type") == "image" and obj.get("id")
+                }
+
+                for topic in data:
+                    if len(items) >= max_news_per_source:
+                        break
+                    item = _parse_motor_topic(topic, source_key, search_brand, included_images)
+                    if not item:
+                        continue
+                    items.append(item)
+                    date_suffix = ""
+                    if item.get("published_at"):
+                        date_suffix = f" | {format_publication_datetime(item['published_at'])}"
+                    print(f"[MOTOR-API] ✅ {item['title'][:50]}...{date_suffix}")
+
+                if len(data) < page_size:
+                    break
+                offset += page_size
+
+        print(f"[MOTOR-API] ИТОГО найдено новостей: {len(items)}")
+        return items
+    except (json.JSONDecodeError, aiohttp.ClientError, KeyError) as e:
+        print(f"[MOTOR-API] ❌ Ошибка при парсинге {api_url}: {e}")
+        return []
+
+async def parse_motor_sources() -> List[Dict]:
+    """Парсит все API-источники Motor.ru (Honda/Acura)."""
+    print(f"\n[MOTOR] === Начало парсинга ===")
+    print(f"[MOTOR] Источников для обработки: {len(motor_sources_list)}")
+
+    if not motor_sources_list:
+        print("[MOTOR] ⚠️ Список источников MOTOR_* пустой!")
+        return []
+
+    results = await asyncio.gather(
+        *[parse_motor_api(source_url) for source_url in motor_sources_list],
+        return_exceptions=True,
+    )
+
+    seen_urls = set()
+    items = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            print(f"[MOTOR] ❌ Исключение от источника {i}: {result}")
+            continue
+        for item in result:
+            if item["url"] in seen_urls:
+                continue
+            seen_urls.add(item["url"])
+            items.append(item)
+
+    print(f"[MOTOR] Всего уникальных публикаций: {len(items)}")
+    print(f"[MOTOR] === Конец парсинга ===\n")
     return items
 
 async def parse_ixbt_car(source_url: str) -> List[Dict]:
@@ -480,17 +629,17 @@ async def parse_generic_html(source_url: str) -> List[Dict]:
 async def parse_new_sources() -> List[Dict]:
     """Парсит все источники и возвращает только новые публикации"""
     print(f"\n[PARSER] === Начало парсинга ===")
-    print(f"[PARSER] Источников для обработки: {len(news_sources_list)}")
+    print(f"[PARSER] Источников для обработки: {len(drom_sources_list)}")
     print(f"[PARSER] Лимит новостей с источника: {max_news_per_source}")
     
-    if not news_sources_list:
+    if not drom_sources_list:
         print("[PARSER] ⚠️ Список источников ПУСТОЙ!")
         return []
     
     all_items = []
     tasks = []
     
-    for source in news_sources_list:
+    for source in drom_sources_list:
         source = source.strip()
         if not source:
             continue

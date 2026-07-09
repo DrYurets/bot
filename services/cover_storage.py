@@ -1,7 +1,10 @@
 import aiohttp
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Optional
+import re
+import unicodedata
 
 PROJECT_ROOT = Path(__file__).parent.parent
 IMAGES_DIR = PROJECT_ROOT / "images"
@@ -11,6 +14,16 @@ HTTP_HEADERS = {
     "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
     "Referer": "https://www.ixbt.com/",
 }
+
+CYRILLIC_MAP = str.maketrans(
+    {
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
+        "ж": "zh", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m",
+        "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+        "ф": "f", "х": "h", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sch",
+        "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+    }
+)
 
 def _cover_extension(cover_url: str, content_type: str | None = None) -> str:
     path_ext = Path(urlparse(cover_url).path).suffix.lower()
@@ -29,12 +42,23 @@ def _cover_extension(cover_url: str, content_type: str | None = None) -> str:
 
     return ".jpg"
 
-async def save_publication_cover(pub_id: str, cover_url: str) -> Optional[str]:
-    """Скачивает обложку и сохраняет в images/<pub_id>/cover.<ext> (напр. images/IX_HON_1/)."""
+def _seo_alias(title: str, pub_id: str, max_length: int = 72) -> str:
+    """Формирует короткий seo-friendly алиас файла из заголовка."""
+    normalized = (title or "").strip().lower().translate(CYRILLIC_MAP)
+    normalized = unicodedata.normalize("NFKD", normalized)
+    normalized = normalized.encode("ascii", "ignore").decode("ascii")
+    normalized = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
+    if not normalized:
+        normalized = f"image-{pub_id.lower()}"
+    return normalized[:max_length].strip("-")
+
+async def save_publication_cover(pub_id: str, title: str, cover_url: str) -> Optional[str]:
+    """Скачивает обложку и сохраняет в images/ДД.ММ.ГГГГ/<pub_id>/<seo-alias>.<ext>."""
     if not cover_url:
         return None
 
-    pub_dir = IMAGES_DIR / str(pub_id)
+    date_dir = datetime.now().strftime("%d.%m.%Y")
+    pub_dir = IMAGES_DIR / date_dir / str(pub_id)
     pub_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -47,7 +71,8 @@ async def save_publication_cover(pub_id: str, cover_url: str) -> Optional[str]:
                 content_type = response.headers.get("Content-Type")
 
         ext = _cover_extension(cover_url, content_type)
-        cover_path = pub_dir / f"cover{ext}"
+        alias = _seo_alias(title, pub_id)
+        cover_path = pub_dir / f"{alias}{ext}"
         cover_path.write_bytes(image_bytes)
 
         relative_path = cover_path.relative_to(PROJECT_ROOT).as_posix()
@@ -60,13 +85,21 @@ async def save_publication_cover(pub_id: str, cover_url: str) -> Optional[str]:
 
 def get_publication_cover_path(pub_id: str) -> Optional[Path]:
     """Возвращает путь к сохранённой обложке публикации, если она есть."""
-    pub_dir = IMAGES_DIR / str(pub_id)
-    if not pub_dir.exists():
-        return None
+    candidate_dirs = [
+        IMAGES_DIR / datetime.now().strftime("%d.%m.%Y") / str(pub_id),  # текущая структура
+        IMAGES_DIR / str(pub_id),  # обратная совместимость со старой структурой
+    ]
 
-    for pattern in ("cover.*", "original.*"):
-        matches = sorted(pub_dir.glob(pattern))
-        if matches:
-            return matches[0]
+    # Если в ожидаемых директориях не нашли, пробуем поиск по всем папкам дат.
+    if all(not d.exists() for d in candidate_dirs):
+        candidate_dirs.extend(sorted(IMAGES_DIR.glob(f"*/{pub_id}"), reverse=True))
+
+    for pub_dir in candidate_dirs:
+        if not pub_dir.exists():
+            continue
+        for pattern in ("*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "cover.*", "original.*"):
+            matches = sorted(pub_dir.glob(pattern))
+            if matches:
+                return matches[0]
 
     return None
