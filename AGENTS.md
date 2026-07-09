@@ -154,10 +154,20 @@ images/IX_AC_2/cover.webp
 | Условие | Парсер |
 |---------|--------|
 | URL содержит `rss`, `feed`, `xml`, `atom` | `parse_rss_feed()` — feedparser |
-| Домен `drom.ru` | `parse_drom_honda()` — 3 стратегии (b-info-block, /info/, по датам) |
+| Домен `drom.ru` | `parse_drom_honda()` — карточки `.b-info-block_like-text` на `news.drom.ru/honda/` |
 | Домен `ixbt.com` | `parse_ixbt_car()` — ссылки с `/car/` (legacy HTML-парсер) |
 | Домен `motor.ru` | `parse_motor_search()` — `/news/`, `/articles/`, `/test-drives/` |
 | Остальное | `parse_generic_html()` — `<article>` или классы news/article/post |
+
+### `/drom` — `parse_drom_honda()`
+
+Парсит HTML-страницу [news.drom.ru/honda/](https://news.drom.ru/honda/):
+
+- Карточки: `.b-info-block.b-info-block_like-text a.b-info-block__cont[href]`
+- Заголовок: `.b-info-block__title`
+- Дата: `.b-info-block__text_type_news-date` (ДД.ММ.ГГГГ → ISO в `published_at`)
+- Обложка: `img` внутри карточки → `images/DR_HON_N/`
+- RSS `drom.ru/export/xml/news.rss` — общий фид (cp1251, без фильтра Honda), не используется
 
 ### `/ixbt` — `parse_ixbt_sources()`
 
