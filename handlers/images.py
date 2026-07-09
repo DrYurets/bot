@@ -1,5 +1,6 @@
 from pathlib import Path
 import tempfile
+from datetime import datetime
 
 from aiogram import Router, types, F
 from aiogram.filters import Command
@@ -11,16 +12,76 @@ from aiogram.types import FSInputFile
 
 router = Router()
 
+CURRENT_DATE_FMT = "%d.%m.%Y"
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+def _find_original_cover(pub_dir: Path) -> Path | None:
+    """Ищет оригинал обложки в директории публикации (без res)."""
+    if not pub_dir.exists() or not pub_dir.is_dir():
+        return None
+    for file_path in sorted(pub_dir.iterdir()):
+        if not file_path.is_file():
+            continue
+        if file_path.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        return file_path
+    return None
+
 @router.message(Command("images"))
 async def cmd_images_start(message: types.Message):
     """Обработчик команды /images"""
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
-        await message.answer(
-            "📸 Отправьте изображение или укажите ID публикаций.\n"
-            "Пример: <code>/images IX_HON_1, IX_AC_2</code>",
-            parse_mode="HTML",
+        today_dir = PROJECT_ROOT / "images" / datetime.now().strftime(CURRENT_DATE_FMT)
+        if not today_dir.exists():
+            await message.answer(
+                "⚠️ Не переданы ID, и в папке текущей даты нет изображений для автообработки.\n"
+                "Пример: <code>/images IX_HON_1, IX_AC_2</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        await message.answer("⏳ Запускаю автообработку обложек за текущую дату...")
+
+        processed_count = 0
+        skipped_count = 0
+        errors: list[str] = []
+
+        for pub_dir in sorted(today_dir.iterdir()):
+            if not pub_dir.is_dir():
+                continue
+            if pub_dir.name == "res":
+                continue
+
+            res_dir = pub_dir / "res"
+            if res_dir.exists():
+                skipped_count += 1
+                continue
+
+            cover_path = _find_original_cover(pub_dir)
+            if not cover_path:
+                continue
+
+            try:
+                processed_bytes = await process_image(cover_path.read_bytes())
+                res_dir.mkdir(parents=True, exist_ok=True)
+                output_path = res_dir / f"{cover_path.stem}.jpg"
+                output_path.write_bytes(processed_bytes)
+                processed_count += 1
+            except Exception as e:
+                errors.append(f"{pub_dir.name}: {str(e)[:100]}")
+
+        report = (
+            "✅ Автообработка завершена.\n"
+            f"📊 Обработано: {processed_count}\n"
+            f"⏭ Пропущено (уже есть res): {skipped_count}"
         )
+        if errors:
+            report += "\n\n<b>Ошибки:</b>\n" + "\n".join(f"• {err}" for err in errors[:5])
+            if len(errors) > 5:
+                report += f"\n... и ещё {len(errors) - 5}"
+
+        await message.answer(report, parse_mode="HTML")
         return
 
     ids = parse_publication_ids(args[1])
@@ -54,15 +115,16 @@ async def cmd_images_start(message: types.Message):
 
         try:
             processed_bytes = await process_image(cover_path.read_bytes())
+            source_dir = cover_path.parent
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
-                temp_file.write(processed_bytes)
-                temp_path = temp_file.name
+            res_dir = source_dir / "res"
+            res_dir.mkdir(parents=True, exist_ok=True)
+            output_path = res_dir / f"{cover_path.stem}.jpg"
+            output_path.write_bytes(processed_bytes)
 
-            processed_photo = FSInputFile(temp_path)
+            processed_photo = FSInputFile(output_path)
             caption = f"✅ ID {pub['id']}: {pub['title'][:120]}"
             await message.answer_photo(processed_photo, caption=caption)
-            Path(temp_path).unlink()
             success_count += 1
 
         except Exception as e:
